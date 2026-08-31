@@ -78,7 +78,28 @@ const loginUsuario = async (req, res) => {
     }
 };
 
+const actualizarPerfil = async (req,res) => {
+    try {
+        const usuarioId = req.usuarioId;
+        const { nombre, direccion } = req.body;
+
+        const resultado = await db.query(
+            'UPDATE usuarios SET nombre = $1, direccion = $2 WHERE id = $3 RETURNING id, nombre, email, direccion',
+            [nombre, direccion, usuarioId]
+        );
+
+        res.json({
+            mensaje: 'Perfil actualizado correctamente',
+            usuario: resultado.rows[0]
+        });
+    } catch (error) {
+        console.error('Error al actualizar perfil:', error);
+        res.status(500).json({mensaje: 'Error al actualizar el perfil' });
+    }
+};
+
 module.exports = {
     registrarUsuario,
-    loginUsuario
+    loginUsuario,
+    actualizarPerfil
 };    

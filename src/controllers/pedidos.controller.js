@@ -23,7 +23,7 @@ const crearPedido = async (req, res) => {
         for (const item of productos) {
             const prodRes = await client.query('SELECT precio, stock FROM productos WHERE id = $1', [item.producto_id]);
             if (prodRes.rows.length === 0) {
-                throw  new Error(`Producto con ID ${item.producto_id} no existe`);
+                throw new Error(`Producto con ID ${item.producto_id} no existe`);
             }
             const producto = prodRes.rows[0];
             if (producto.stock < item.cantidad) {
@@ -56,22 +56,60 @@ const crearPedido = async (req, res) => {
             );
         }
 
-    await client.query('COMMIT');
+        await client.query('COMMIT');
 
-    res.status(201).json({
-        mensaje: 'Pedido creado exitosamente',
-        pedido: pedidoRes.rows[0]
-    });
+        res.status(201).json({
+            mensaje: 'Pedido creado exitosamente',
+            pedido: pedidoRes.rows[0]
+        });
 
-} catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error al crear pedido:', error);
-    res.status(400).json({ Error: error.message || 'Error al procesar el pedido'});
-} finally {
-    client.release();
-}
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error al crear pedido:', error);
+        res.status(400).json({ Error: error.message || 'Error al procesar el pedido'});
+    } finally {
+        client.release();
+    }
+};
+
+// Obtener los pedidos del usuario autenticado
+const obtenerPedidos = async (req, res) => {
+    try {
+        const usuarioId = req.usuario.id;
+
+        const consulta = `
+            SELECT 
+                p.id,
+                p.total,
+                p.estado,
+                p.direccion_envio,
+                p.creado_en,
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'producto_id', dp.producto_id,
+                        'cantidad', dp.cantidad,
+                        'precio', dp.precio_unitario,
+                        'nombre', pr.nombre
+                    )
+                ) AS productos
+            FROM pedidos p
+            JOIN detalle_pedidos dp ON p.id = dp.pedido_id
+            JOIN productos pr ON dp.producto_id = pr.id
+            WHERE p.usuario_id = $1
+            GROUP BY p.id
+            ORDER BY p.creado_en DESC
+        `;
+
+        const resultado = await db.query(consulta, [usuarioId]);
+
+        res.json(resultado.rows);
+    } catch (error) {
+        console.error('Error al obtener pedidos:', error);
+        res.status(500).json({ mensaje: 'Error al obtener los pedidos' });
+    }
 };
 
 module.exports = {
     crearPedido,
+    obtenerPedidos,
 };
