@@ -1,4 +1,7 @@
 const db = require('../config/db');
+const { Resend } = require('resend');
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Crear un nuevo pedido
 const crearPedido = async (req, res) => {
@@ -18,20 +21,34 @@ const crearPedido = async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // Calcular el total del pedido
+        const userRes = await client.query('SELECT email, nombre FROM usuarios WHERE id = $1', [usuario_id]);
+        const usuario = userRes.rows[0];
+
+        const productosProcesados = [];
         let total = 0;
+
         for (const item of productos) {
-            const prodRes = await client.query('SELECT precio, stock FROM productos WHERE id = $1', [item.producto_id]);
+            const prodRes = await client.query('SELECT nombre, precio, stock FROM productos WHERE id = $1', [item.producto_id]);
             if (prodRes.rows.length === 0) {
                 throw new Error(`Producto con ID ${item.producto_id} no existe`);
             }
+
             const producto = prodRes.rows[0];
+
             if (producto.stock < item.cantidad) {
                 throw new Error(`Stock insuficiente para el producto ID ${item.producto_id}`);
             }
 
-            total += Number(producto.precio) * item.cantidad;
-        }
+            const precioUnitario = Number(producto.precio) || 0;
+            total += precioUnitario * item.cantidad;
+        
+            productosProcesados.push({
+                producto_id: item.producto_id,
+                nombre: producto.nombre,
+                cantidad: item.cantidad,
+                precio: precioUnitario
+        });
+    }
 
         // Insertar la cabecera del pedido
         const pedidoRes = await client.query(
@@ -41,22 +58,66 @@ const crearPedido = async (req, res) => {
         const pedidoId = pedidoRes.rows[0].id;
 
         // Insertar los detalles y actualizar el stock
-        for (const item of productos) {
-            const prodRes = await client.query('SELECT precio FROM productos WHERE id = $1', [item.producto_id]);
-            const precioUnitario = prodRes.rows[0].precio;
-            
+        for (const prod of productosProcesados) {
+                        
             await client.query(
                 'INSERT INTO detalle_pedidos (pedido_id, producto_id, cantidad, precio_unitario) VALUES ($1, $2, $3, $4)',
-                [pedidoId, item.producto_id, item.cantidad, precioUnitario]
+                [pedidoId, prod.producto_id, prod.cantidad, prod.precio]
             );
 
             await client.query(
                 'UPDATE productos SET stock = stock - $1 WHERE id = $2',
-                [item.cantidad, item.producto_id]
+                [prod.cantidad, prod.producto_id]
             );
         }
 
         await client.query('COMMIT');
+
+        if (usuario && usuario.email) {
+            try {
+                const listaProductosHtml = productosProcesados
+                    .map((prod) => {
+                        const precioNum = Number(prod.precio) || 0;
+                        return `<li><strong>${prod.nombre}</strong> — Cantidad: ${prod.cantidad} ($${precioNum.toFixed(2)} )</li>`;
+                    })
+                    .join('');
+
+                const { data, error: resendError } = await resend.emails.send({
+                    from: 'Acme <onboarding@resend.dev>',
+                    to: usuario.email,
+                    subject: `Confirmación de Pedido #${pedidoId}`,
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+                            <h1 style="color: #2563eb;">¡Gracias por tu compra, ${usuario.nombre || 'Cliente'}!</h1>
+                            <p>Hemos recibido tu pedido <strong>#${pedidoId}</strong> con éxito.</p>
+                            
+                            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+                            
+                            <h3 style="color: #333;">Resumen de la compra:</h3>
+                            <ul>
+                                ${listaProductosHtml}
+                            </ul>
+                            
+                            <p style="font-size: 16px;"><strong>Total pagado:</strong> $${Number(total).toFixed(2)}</p>
+                            
+                            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+                            
+                            <h3 style="color: #333;">Datos de envío:</h3>
+                            <p><strong>Dirección:</strong> ${direccion_envio}</p>
+                            <p><strong>Teléfono:</strong> ${telefono}</p>
+                        </div>
+                    `
+                });
+
+                if (resendError) {
+                    console.error('Resend rechazó el envío:', resendError);
+                } else {
+                    console.log('Correo enviado con éxito. ID de Resend:', data.id);
+                }
+            } catch (emailError) {
+                console.error('Error inesperado al enviar el correo:', emailError);
+            }
+        }
 
         res.status(201).json({
             mensaje: 'Pedido creado exitosamente',
