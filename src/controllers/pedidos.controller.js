@@ -3,7 +3,7 @@ const db = require('../config/db');
 // Crear un nuevo pedido
 const crearPedido = async (req, res) => {
     const usuario_id = req.usuario.id;
-    const { productos, direccion_envio } = req.body;
+    const { productos, direccion_envio, telefono } = req.body;
 
     if (!direccion_envio) {
         return res.status(400).json({ Error: 'La dirección de envío es obligatoria' });
@@ -35,8 +35,8 @@ const crearPedido = async (req, res) => {
 
         // Insertar la cabecera del pedido
         const pedidoRes = await client.query(
-            'INSERT INTO pedidos (usuario_id, total, estado, direccion_envio) VALUES ($1, $2, $3, $4) RETURNING *',
-            [usuario_id, total, 'pendiente', direccion_envio]
+            'INSERT INTO pedidos (usuario_id, total, estado, direccion_envio, telefono) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [usuario_id, total, 'pendiente', direccion_envio, telefono]
         );
         const pedidoId = pedidoRes.rows[0].id;
 
@@ -83,6 +83,7 @@ const obtenerPedidos = async (req, res) => {
                 p.total,
                 p.estado,
                 p.direccion_envio,
+                p.telefono,
                 p.creado_en,
                 JSON_AGG(
                     JSON_BUILD_OBJECT(

@@ -13,8 +13,15 @@ const verificarToken = (req, res, next) => {
     try {
         // Verificar el token
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'clave_secreta_provicional');
-        req.usuario = decoded; // Guardar la información del usuario en la solicitud
-        next(); // Continuar con la siguiente función middleware o ruta
+
+        console.log("Contenido real del token:", decoded);
+
+        req.usuario = {
+            ...decoded,
+            id: decoded.id || decoded.usuarioId || decoded.sub
+        };
+
+        next();
     } catch (error) {
         return res.status(403).json({ Error: 'Token inválido.' });
     }

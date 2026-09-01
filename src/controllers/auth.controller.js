@@ -80,15 +80,35 @@ const loginUsuario = async (req, res) => {
 
 const actualizarPerfil = async (req,res) => {
     try {
-        const usuarioId = req.usuarioId;
-        const { nombre, direccion } = req.body;
+        console.log("req.usuario recibido:", req.usuario);
+
+        const usuarioId = req.usuario?.id;
+
+        const { nombre, direccion, telefono } = req.body;
+
+        console.log("Datos recibidos en backend:", {nombre, direccion, telefono, usuarioId });
+
+        if (!usuarioId) {
+            return res.status(401).json({
+                exito: false,
+                mensaje: 'No se pudo identificar al usuario desde el token.'
+            });
+        }
 
         const resultado = await db.query(
-            'UPDATE usuarios SET nombre = $1, direccion = $2 WHERE id = $3 RETURNING id, nombre, email, direccion',
-            [nombre, direccion, usuarioId]
+            'UPDATE usuarios SET nombre = $1, direccion = $2, telefono = $3 WHERE id = $4 RETURNING id, nombre, email, direccion, telefono',
+            [nombre, direccion || null, telefono || null, usuarioId]
         );
 
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({
+                exito: false,
+                mensaje: 'Usuario no encontrado en la base de datos.'
+            });
+        }
+
         res.json({
+            exito: true,
             mensaje: 'Perfil actualizado correctamente',
             usuario: resultado.rows[0]
         });
